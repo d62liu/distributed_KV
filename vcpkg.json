@@ -1,0 +1,8 @@
+{
+    "dependencies": [
+        "grpc",
+        "spdlog",
+        "gtest",
+        "xxhash"
+    ]
+}
