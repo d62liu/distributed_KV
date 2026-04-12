@@ -41,15 +41,23 @@ target_link_libraries(dkv-proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
 
 add_library(dkv-storage
     src/storage/shard_map.cc
+    src/storage/wal.cc
+    src/storage/store.cc
 )
 target_include_directories(dkv-storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(dkv-storage PUBLIC spdlog::spdlog xxHash::xxhash)
+target_link_libraries(dkv-storage PUBLIC spdlog::spdlog xxHash::xxhash dkv-proto)
 
 add_executable(dkv-server
     src/main.cc
     src/server/kv_service_impl.cc
 )
 target_link_libraries(dkv-server PRIVATE dkv-proto dkv-storage spdlog::spdlog)
+
+add_executable(dkv-cli
+    src/server/cli.cc
+)
+target_link_libraries(dkv-cli PRIVATE dkv-proto)
+target_include_directories(dkv-cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 enable_testing()
 
@@ -58,3 +66,4 @@ add_executable(test-shard-map
 )
 target_link_libraries(test-shard-map PRIVATE dkv-storage GTest::gtest_main)
 add_test(NAME ShardMap COMMAND test-shard-map)
+

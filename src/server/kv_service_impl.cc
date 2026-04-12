@@ -1,22 +1,23 @@
 #include "server/kv_service_impl.h"
 
-KVServiceImpl::KVServiceImpl(ShardedTable& shard_map) : shard_map(shard_map) {}
+KVServiceImpl::KVServiceImpl(Store& store) : store(store) {}
 
 grpc::Status KVServiceImpl::Put(grpc::ServerContext*, const PutRequest* req, PutResponse* resp) {
-    shard_map.put(req->key(), req->value());
+    store.put(req->key(), req->value());
     resp->set_success(true);
     return grpc::Status::OK;
 }
 
 grpc::Status KVServiceImpl::Get(grpc::ServerContext*, const GetRequest* req, GetResponse* resp) {
-    std::string value = shard_map.get(req->key());
+    std::string value = store.get(req->key());
     bool found = !value.empty();
     resp->set_found(found);
     if (found) resp->set_value(value);
     return grpc::Status::OK;
 }
 
-grpc::Status KVServiceImpl::Delete(grpc::ServerContext*, const DeleteRequest*, DeleteResponse* resp) {
+grpc::Status KVServiceImpl::Delete(grpc::ServerContext*, const DeleteRequest* req, DeleteResponse* resp) {
+    store.remove(req->key());
     resp->set_success(true);
     return grpc::Status::OK;
 }
