@@ -48,13 +48,13 @@ target_include_directories(dkv-storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(dkv-storage PUBLIC spdlog::spdlog xxHash::xxhash dkv-proto)
 
 add_executable(dkv-server
-    src/main.cc
+    src/server/main.cc
     src/server/kv_service_impl.cc
 )
 target_link_libraries(dkv-server PRIVATE dkv-proto dkv-storage spdlog::spdlog)
 
 add_executable(dkv-cli
-    src/server/cli.cc
+    src/client/cli.cc
 )
 target_link_libraries(dkv-cli PRIVATE dkv-proto)
 target_include_directories(dkv-cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -62,8 +62,14 @@ target_include_directories(dkv-cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 enable_testing()
 
 add_executable(test-shard-map
-    test/test_shard_map.cpp
+    test/test_shard_map.cc
 )
 target_link_libraries(test-shard-map PRIVATE dkv-storage GTest::gtest_main)
 add_test(NAME ShardMap COMMAND test-shard-map)
+
+add_executable(test-wal
+    test/test_wal.cc
+)
+target_link_libraries(test-wal PRIVATE dkv-storage GTest::gtest_main)
+add_test(NAME WAL COMMAND test-wal)
 
