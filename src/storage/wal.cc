@@ -4,7 +4,6 @@
 #include <fcntl.h>
 #include <cstring>
 
-// CRC32 lookup table — standard polynomial 0xEDB88320
 static uint32_t crc32_table[256];
 static bool crc32_table_initialized = false;
 
@@ -28,9 +27,6 @@ static uint32_t compute_crc32(const char* data, size_t len) {
     return crc ^ 0xFFFFFFFF;
 }
 
-// Using raw file descriptors instead of ofstream so we can fsync the
-// same fd we write to. ofstream doesn't expose its fd.
-
 WAL::WAL(const std::string& filepath) : filepath(filepath), fd(-1) {
     fd = open(filepath.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (fd < 0) {
@@ -46,7 +42,6 @@ bool WAL::append(const std::string& payload) {
     uint32_t length = static_cast<uint32_t>(payload.size());
     uint32_t crc = compute_crc32(payload.data(), payload.size());
 
-    // Write: [4B length][4B CRC32][payload]
     if (::write(fd, &length, 4) != 4) return false;
     if (::write(fd, &crc, 4) != 4) return false;
     if (::write(fd, payload.data(), length) != static_cast<ssize_t>(length)) return false;

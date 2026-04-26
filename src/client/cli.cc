@@ -25,6 +25,7 @@ int main(int argc, char* argv[]){
             key = std::string(argv[i + 1]);
         }
         if (cur == "delete" && i + 1 < argc){
+            
             cmd = "delete";
             key = std::string(argv[i + 1]);
         }
