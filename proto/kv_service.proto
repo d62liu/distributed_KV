@@ -9,6 +9,7 @@ service KVService {
 message PutRequest {
   string key = 1;
   string value = 2;
+  string request_id = 3;
 }
 
 message PutResponse {
@@ -26,6 +27,7 @@ message GetResponse {
 
 message DeleteRequest {
   string key = 1;
+  string request_id = 2;
 }
 
 message DeleteResponse {
@@ -40,4 +42,5 @@ message Command {
   Type type = 1;
   string key = 2;
   string value = 3;
+  string request_id = 4;
 }
