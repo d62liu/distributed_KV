@@ -1,6 +1,6 @@
+#pragma once
 #include <unordered_map>
 #include <shared_mutex>
-#include <mutex>
 #include <chrono>
 #include <string>
 #include <optional>
@@ -25,9 +25,9 @@ public:
         return std::nullopt;
     }
 
-    void store(const std::string& request_id, const std::string& value) {
+    void store(const std::string& request_id, const std::string& value, bool success) {
         std::unique_lock<std::shared_mutex> lock(mu);
-        table[request_id] = CachedResult{value, true, std::chrono::steady_clock::now()};
+        table[request_id] = CachedResult{value, success, std::chrono::steady_clock::now()};
     }
 
     void sweep() {

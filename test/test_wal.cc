@@ -69,21 +69,14 @@ TEST(WAL, CorruptedCRCStopsReplay) {
         wal.append(make_put_payload("key2", "val2"));
     }
 
-    // Flip a byte in the CRC of the second record
-    // First record: 4B length + 4B CRC + payload
-    // We need to find offset of second record's CRC
     {
-        // Read first record's length to find where second record starts
         std::ifstream f(WAL_PATH, std::ios::binary);
         uint32_t len1;
         f.read(reinterpret_cast<char*>(&len1), 4);
-        // Second record starts at: 4 (len) + 4 (crc) + len1
         size_t second_record_offset = 4 + 4 + len1;
-        // CRC of second record is at: second_record_offset + 4
         size_t second_crc_offset = second_record_offset + 4;
         f.close();
 
-        // Corrupt the CRC
         std::fstream rw(WAL_PATH, std::ios::binary | std::ios::in | std::ios::out);
         rw.seekp(second_crc_offset);
         char bad = 0xFF;
@@ -92,7 +85,6 @@ TEST(WAL, CorruptedCRCStopsReplay) {
 
     WAL wal(WAL_PATH);
     auto records = wal.readAll();
-    // Only the first record should be valid
     ASSERT_EQ(records.size(), 1);
     Command c;
     ASSERT_TRUE(c.ParseFromString(records[0]));
@@ -110,20 +102,17 @@ TEST(WAL, TruncatedRecordDiscarded) {
         wal.append(make_put_payload("good", "record"));
     }
 
-    // Append a partial record manually — length header only, no payload
     {
         std::ofstream f(WAL_PATH, std::ios::binary | std::ios::app);
         uint32_t fake_length = 20;
         f.write(reinterpret_cast<const char*>(&fake_length), 4);
-        // Write CRC but only 5 of the 20 payload bytes — truncated
         uint32_t fake_crc = 0xDEADBEEF;
         f.write(reinterpret_cast<const char*>(&fake_crc), 4);
-        f.write("hello", 5);  // only 5 bytes of promised 20
+        f.write("hello", 5);
     }
 
     WAL wal(WAL_PATH);
     auto records = wal.readAll();
-    // Only the complete record should come back
     ASSERT_EQ(records.size(), 1);
     Command c;
     ASSERT_TRUE(c.ParseFromString(records[0]));
@@ -138,34 +127,31 @@ TEST(Store, RecoverAfterRestart) {
     remove_wal();
     {
         Store store(16, WAL_PATH);
-        store.put("hello", "world");
-        store.put("foo", "bar");
-        store.put("key1", "value1");
-        store.remove("foo");
-        // store goes out of scope — simulates crash/shutdown
+        store.put("hello", "world", "req-1");
+        store.put("foo", "bar", "req-2");
+        store.put("key1", "value1", "req-3");
+        store.remove("foo", "req-4");
     }
 
-    // New Store instance — simulates restart
     Store store(16, WAL_PATH);
     store.recover();
 
     EXPECT_EQ(store.get("hello"), "world");
     EXPECT_EQ(store.get("key1"), "value1");
-    EXPECT_EQ(store.get("foo"), "");   // was deleted
+    EXPECT_EQ(store.get("foo"), "");
 }
 
 TEST(Store, OverwriteRecoveredCorrectly) {
     remove_wal();
     {
         Store store(16, WAL_PATH);
-        store.put("key", "original");
-        store.put("key", "updated");
+        store.put("key", "original", "req-1");
+        store.put("key", "updated", "req-2");
     }
 
     Store store(16, WAL_PATH);
     store.recover();
 
-    // Should have the latest value
     EXPECT_EQ(store.get("key"), "updated");
 }
 
@@ -176,30 +162,54 @@ TEST(Store, OverwriteRecoveredCorrectly) {
 TEST(Store, MultipleRestarts) {
     remove_wal();
 
-    // First session
     {
         Store store(16, WAL_PATH);
-        store.put("a", "1");
-        store.put("b", "2");
+        store.put("a", "1", "req-1");
+        store.put("b", "2", "req-2");
     }
 
-    // Second session — recover, add more
     {
         Store store(16, WAL_PATH);
         store.recover();
         EXPECT_EQ(store.get("a"), "1");
-        store.put("c", "3");
-        store.remove("a");
+        store.put("c", "3", "req-3");
+        store.remove("a", "req-4");
     }
 
-    // Third session — recover again
     {
         Store store(16, WAL_PATH);
         store.recover();
-        EXPECT_EQ(store.get("a"), "");  // deleted in session 2
-        EXPECT_EQ(store.get("b"), "2"); // survived both restarts
-        EXPECT_EQ(store.get("c"), "3"); // added in session 2
+        EXPECT_EQ(store.get("a"), "");
+        EXPECT_EQ(store.get("b"), "2");
+        EXPECT_EQ(store.get("c"), "3");
     }
+}
+
+// ─────────────────────────────────────────────
+// 6. Idempotency — same request_id applied once
+// ─────────────────────────────────────────────
+
+TEST(Store, IdempotentPut) {
+    remove_wal();
+    Store store(16, WAL_PATH);
+    store.put("key", "value1", "req-abc");
+    store.put("key", "value2", "req-abc");  // same request_id — should be ignored
+
+    EXPECT_EQ(store.get("key"), "value1");
+}
+
+TEST(Store, IdempotencyRebuiltAfterRestart) {
+    remove_wal();
+    {
+        Store store(16, WAL_PATH);
+        store.put("key", "value1", "req-abc");
+    }
+
+    Store store(16, WAL_PATH);
+    store.recover();
+    store.put("key", "value2", "req-abc");  // same request_id — should be ignored after recovery
+
+    EXPECT_EQ(store.get("key"), "value1");
 }
 
 int main(int argc, char** argv) {
