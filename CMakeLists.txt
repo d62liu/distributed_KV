@@ -39,6 +39,11 @@ add_library(dkv-proto
 target_include_directories(dkv-proto PUBLIC ${PROTO_OUT})
 target_link_libraries(dkv-proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
 
+add_library(dkv-config
+    src/config/cluster_config.cc
+)
+target_include_directories(dkv-config PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_library(dkv-storage
     src/storage/shard_map.cc
     src/storage/wal.cc
