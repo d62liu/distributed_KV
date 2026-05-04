@@ -13,8 +13,7 @@ find_package(Protobuf CONFIG REQUIRED)
 
 get_target_property(grpc_cpp_plugin gRPC::grpc_cpp_plugin LOCATION)
 
-set(PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/proto/kv_service.proto)
-set(PROTO_OUT  ${CMAKE_CURRENT_BINARY_DIR})
+set(PROTO_OUT ${CMAKE_CURRENT_BINARY_DIR})
 
 add_custom_command(
     OUTPUT
@@ -28,13 +27,31 @@ add_custom_command(
         --grpc_out=${PROTO_OUT}
         --plugin=protoc-gen-grpc=${grpc_cpp_plugin}
         -I${CMAKE_CURRENT_SOURCE_DIR}/proto
-        ${PROTO_FILE}
-    DEPENDS ${PROTO_FILE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/proto/kv_service.proto
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/proto/kv_service.proto
+)
+
+add_custom_command(
+    OUTPUT
+        ${PROTO_OUT}/raft_service.pb.cc
+        ${PROTO_OUT}/raft_service.pb.h
+        ${PROTO_OUT}/raft_service.grpc.pb.cc
+        ${PROTO_OUT}/raft_service.grpc.pb.h
+    COMMAND protobuf::protoc
+    ARGS
+        --cpp_out=${PROTO_OUT}
+        --grpc_out=${PROTO_OUT}
+        --plugin=protoc-gen-grpc=${grpc_cpp_plugin}
+        -I${CMAKE_CURRENT_SOURCE_DIR}/proto
+        ${CMAKE_CURRENT_SOURCE_DIR}/proto/raft_service.proto
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/proto/raft_service.proto
 )
 
 add_library(dkv-proto
     ${PROTO_OUT}/kv_service.pb.cc
     ${PROTO_OUT}/kv_service.grpc.pb.cc
+    ${PROTO_OUT}/raft_service.pb.cc
+    ${PROTO_OUT}/raft_service.grpc.pb.cc
 )
 target_include_directories(dkv-proto PUBLIC ${PROTO_OUT})
 target_link_libraries(dkv-proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
@@ -43,6 +60,19 @@ add_library(dkv-config
     src/config/cluster_config.cc
 )
 target_include_directories(dkv-config PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_library(dkv-util
+    src/util/timer.cc
+)
+target_include_directories(dkv-util PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+add_library(dkv-raft
+    src/raft/raft_node.cc
+    src/raft/raft_client.cc
+    src/raft/raft_service_impl.cc
+)
+target_include_directories(dkv-raft PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(dkv-raft PUBLIC dkv-util dkv-proto)
 
 add_library(dkv-storage
     src/storage/shard_map.cc
