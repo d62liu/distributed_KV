@@ -3,6 +3,6 @@
         "grpc",
         "spdlog",
         "gtest",
-        "xxhash",
+        "xxhash"
     ]
 }
