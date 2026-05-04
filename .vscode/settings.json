@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "/Users/danielliu/Downloads/Projects/distributed_KV"
+    "cmake.sourceDirectory": "/Users/danielliu/Downloads/Projects/distributed_KV",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json"
 }
