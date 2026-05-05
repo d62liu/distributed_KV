@@ -11,6 +11,7 @@ public:
     Timer(uint64_t time_ms, std::function<void()> callback);
     ~Timer();
     void reset();
+    void stop();
 
 private:
     void run();

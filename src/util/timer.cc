@@ -40,11 +40,15 @@ void Timer::reset() {
     cv.notify_one();
 }
 
-Timer::~Timer() {
+void Timer::stop() {
     {
         std::unique_lock<std::mutex> lock(mu);
         stopped = true;
         cv.notify_one();
     }
     thread.join();
+}
+
+Timer::~Timer() {
+    stop();
 }
