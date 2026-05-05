@@ -45,6 +45,7 @@ add_custom_command(
         -I${CMAKE_CURRENT_SOURCE_DIR}/proto
         ${CMAKE_CURRENT_SOURCE_DIR}/proto/raft_service.proto
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/proto/raft_service.proto
+            ${CMAKE_CURRENT_SOURCE_DIR}/proto/kv_service.proto
 )
 
 add_library(dkv-proto
@@ -72,7 +73,7 @@ add_library(dkv-raft
     src/raft/raft_service_impl.cc
 )
 target_include_directories(dkv-raft PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(dkv-raft PUBLIC dkv-util dkv-proto)
+target_link_libraries(dkv-raft PUBLIC dkv-util dkv-proto dkv-storage)
 
 add_library(dkv-storage
     src/storage/shard_map.cc
@@ -86,7 +87,7 @@ add_executable(dkv-server
     src/server/main.cc
     src/server/kv_service_impl.cc
 )
-target_link_libraries(dkv-server PRIVATE dkv-proto dkv-storage spdlog::spdlog)
+target_link_libraries(dkv-server PRIVATE dkv-proto dkv-storage dkv-raft dkv-config spdlog::spdlog)
 
 add_executable(dkv-cli
     src/client/cli.cc
