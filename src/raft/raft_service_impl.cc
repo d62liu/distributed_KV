@@ -9,7 +9,7 @@ grpc::Status RaftServiceImpl::RequestVote(grpc::ServerContext*, const raft::Vote
 }
 
 grpc::Status RaftServiceImpl::AppendEntries(grpc::ServerContext*, const raft::AppendEntriesRequest* req, raft::AppendEntriesResponse* resp) {
-    bool success = raft_node.append_entries(req->term(), req->leader_id());
+    bool success = raft_node.append_entries(*req);
     resp->set_success(success);
     return grpc::Status::OK;
 }
