@@ -8,6 +8,7 @@
 class Timer {
 public:
     explicit Timer(std::function<void()> callback);
+    Timer(uint64_t time_ms, std::function<void()> callback);
     ~Timer();
     void reset();
 
