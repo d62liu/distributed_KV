@@ -1,9 +1,16 @@
 #include "server/kv_service_impl.h"
 
-KVServiceImpl::KVServiceImpl(Store& store) : store(store) {}
+KVServiceImpl::KVServiceImpl(Store& store, RaftNode& raft_node)
+    : store(store), raft_node(raft_node) {}
 
 grpc::Status KVServiceImpl::Put(grpc::ServerContext*, const PutRequest* req, PutResponse* resp) {
-    store.put(req->key(), req->value(), req->request_id());
+    Command cmd;
+    cmd.set_type(Command::PUT);
+    cmd.set_key(req->key());
+    cmd.set_value(req->value());
+    cmd.set_request_id(req->request_id());
+    bool ok = raft_node.propose(cmd);
+    if (!ok) return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, "not leader");
     resp->set_success(true);
     return grpc::Status::OK;
 }
@@ -17,7 +24,12 @@ grpc::Status KVServiceImpl::Get(grpc::ServerContext*, const GetRequest* req, Get
 }
 
 grpc::Status KVServiceImpl::Delete(grpc::ServerContext*, const DeleteRequest* req, DeleteResponse* resp) {
-    store.remove(req->key(), req->request_id());
+    Command cmd;
+    cmd.set_type(Command::DELETE);
+    cmd.set_key(req->key());
+    cmd.set_request_id(req->request_id());
+    bool ok = raft_node.propose(cmd);
+    if (!ok) return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, "not leader");
     resp->set_success(true);
     return grpc::Status::OK;
 }

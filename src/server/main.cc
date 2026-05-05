@@ -20,10 +20,10 @@ int main(int argc, char* argv[]){
     Store store(16, wal_path);
     store.recover();
 
-    RaftNode raft_node(node_id, "p1", peer_addresses);
+    RaftNode raft_node(node_id, "p1", peer_addresses, store);
     RaftServiceImpl raft_service(raft_node);
 
-    KVServiceImpl kv_service(store);
+    KVServiceImpl kv_service(store, raft_node);
     grpc::ServerBuilder builder;
     builder.AddListeningPort("0.0.0.0:" + port, grpc::InsecureServerCredentials());
     builder.RegisterService(&kv_service);
