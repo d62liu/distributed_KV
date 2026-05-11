@@ -30,9 +30,17 @@ message AppendEntriesRequest {
     string leader_id = 2;
     repeated LogEntry entries = 3;
     uint64 commit_index = 4;
+    uint64 prev_log_index = 5;
+    uint64 prev_log_term = 6;
 }
 
 message AppendEntriesResponse {
     uint64 term = 1;
     bool success = 2;
+}
+
+message RaftState {
+    uint64 term = 1;
+    string voted_for = 2;
+    repeated LogEntry entries = 3;
 }
