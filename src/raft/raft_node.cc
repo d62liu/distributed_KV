@@ -99,56 +99,75 @@ bool RaftNode::append_entries(const raft::AppendEntriesRequest& req) {
 }
 
 bool RaftNode::propose(const Command& cmd) {
-    std::lock_guard<std::mutex> lock(mu);
-    if (state != State::Leader) return false;
+    std::lock_guard<std::mutex> propose_lock(propose_mu);
 
-    raft::LogEntry entry;
-    entry.set_index(log.size());
-    entry.set_term(term_number);
-    *entry.mutable_command() = cmd;
-    log.push_back(entry);
-    persist_state();
-
-    uint64_t new_entry_index = log.size() - 1;
+    uint64_t new_entry_index;
+    uint64_t local_term;
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        if (state != State::Leader) return false;
+        raft::LogEntry entry;
+        entry.set_index(log.size());
+        entry.set_term(term_number);
+        *entry.mutable_command() = cmd;
+        log.push_back(entry);
+        persist_state();
+        new_entry_index = log.size() - 1;
+        local_term = term_number;
+    }
 
     int acks = 1;
     for (const auto& peer : peers) {
         auto& client = clients.at(peer);
         bool peer_acked = false;
 
-        while (next_index[peer] <= new_entry_index) {
-            uint64_t ni = next_index[peer];
-
+        while (true) {
             raft::AppendEntriesRequest req;
-            req.set_term(term_number);
-            req.set_leader_id(node_id);
-            req.set_commit_index(commit_index);
-            if (ni > 0) {
-                req.set_prev_log_index(ni - 1);
-                req.set_prev_log_term(log[ni - 1].term());
+            {
+                std::lock_guard<std::mutex> lock(mu);
+                if (state != State::Leader || term_number != local_term) return false;
+                uint64_t ni = next_index[peer];
+                if (ni > new_entry_index) { peer_acked = true; break; }
+                req.set_term(term_number);
+                req.set_leader_id(node_id);
+                req.set_commit_index(commit_index);
+                if (ni > 0) {
+                    req.set_prev_log_index(ni - 1);
+                    req.set_prev_log_term(log[ni - 1].term());
+                }
+                for (uint64_t i = ni; i < log.size(); ++i)
+                    *req.add_entries() = log[i];
             }
-            for (uint64_t i = ni; i < log.size(); ++i)
-                *req.add_entries() = log[i];
 
             raft::AppendEntriesResponse resp = client.AppendEntries(req);
-            if (resp.term() > term_number) { step_down(resp.term()); return false; }
-            if (resp.success()) {
-                match_index[peer] = new_entry_index;
-                next_index[peer] = log.size();
-                peer_acked = true;
-                break;
+
+            {
+                std::lock_guard<std::mutex> lock(mu);
+                if (resp.term() > term_number) { step_down(resp.term()); return false; }
+                if (state != State::Leader || term_number != local_term) return false;
+                if (resp.success()) {
+                    match_index[peer] = new_entry_index;
+                    next_index[peer] = new_entry_index + 1;
+                    peer_acked = true;
+                    break;
+                }
+                if (next_index[peer] == 0) break;
+                next_index[peer]--;
             }
-            if (ni == 0) break;
-            next_index[peer]--;
         }
 
         if (peer_acked) ++acks;
     }
 
-    if (acks > static_cast<int>(peers.size() + 1) / 2) {
-        commit_index = log.size();
-        apply_committed();
-        return true;
+    // Phase 3: commit if majority acked
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        if (state != State::Leader || term_number != local_term) return false;
+        if (acks > static_cast<int>(peers.size() + 1) / 2) {
+            commit_index = log.size();
+            apply_committed();
+            return true;
+        }
     }
     return false;
 }

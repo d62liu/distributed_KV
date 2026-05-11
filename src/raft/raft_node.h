@@ -36,6 +36,7 @@ class RaftNode {
     std::unordered_map<std::string, uint64_t> next_index;
     std::unordered_map<std::string, uint64_t> match_index;
     mutable std::mutex mu;
+    std::mutex propose_mu;
     std::string persist_path;
 
 public:
