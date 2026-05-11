@@ -21,7 +21,7 @@ void Store::put(const std::string& key, const std::string& value, const std::str
     dedup.store(request_id, value, true);
 }
 
-std::string Store::get(const std::string& key) {
+std::optional<std::string> Store::get(const std::string& key) {
     return table.get(key);
 }
 

@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <shared_mutex>
 #include <vector>
+#include <optional>
 #include <cstdint>
 
 struct Shard {
@@ -16,7 +17,7 @@ class ShardedTable {
     uint64_t get_shard(const std::string& key);
 public:
     ShardedTable(int num_shards);
-    std::string get(const std::string& key);
+    std::optional<std::string> get(const std::string& key);
     void put(const std::string& key, const std::string& value);
     void remove(const std::string& key);
 };
