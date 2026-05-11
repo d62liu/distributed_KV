@@ -9,20 +9,23 @@ static std::chrono::milliseconds random_duration() {
 
 Timer::Timer(std::function<void()> callback)
     : callback(std::move(callback))
-    , duration(random_duration())
+    , duration(0)
+    , randomize(true)
 {
     thread = std::thread(&Timer::run, this);
 }
 
 Timer::Timer(uint64_t time_ms, std::function<void()> callback)
     : callback(std::move(callback))
-    , duration(time_ms) {
+    , duration(time_ms)
+    , randomize(false) {
     thread = std::thread(&Timer::run, this);
     }
 
 void Timer::run() {
     while (true) {
         std::unique_lock<std::mutex> lock(mu);
+        if (randomize) duration = random_duration();
         cv.wait_for(lock, duration, [this]() { return stopped || reset_requested; });
         if (stopped) return;
         if (reset_requested) {
