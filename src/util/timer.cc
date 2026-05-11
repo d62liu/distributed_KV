@@ -49,6 +49,12 @@ void Timer::stop() {
     thread.join();
 }
 
+void Timer::cancel() {
+    std::unique_lock<std::mutex> lock(mu);
+    stopped = true;
+    cv.notify_one();
+}
+
 Timer::~Timer() {
     stop();
 }

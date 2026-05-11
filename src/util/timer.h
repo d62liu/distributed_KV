@@ -12,6 +12,7 @@ public:
     ~Timer();
     void reset();
     void stop();
+    void cancel();
 
 private:
     void run();
