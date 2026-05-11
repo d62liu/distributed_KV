@@ -18,6 +18,8 @@ message LogEntry {
 message VoteRequest {
     uint64 term = 1;
     string candidate_id = 2;
+    uint64 last_log_index = 3;
+    uint64 last_log_term = 4;
 }
 
 message VoteResponse {

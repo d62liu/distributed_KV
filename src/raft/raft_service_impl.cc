@@ -3,7 +3,8 @@
 RaftServiceImpl::RaftServiceImpl(RaftNode& raft_node) : raft_node{raft_node}{}
 
 grpc::Status RaftServiceImpl::RequestVote(grpc::ServerContext*, const raft::VoteRequest* req, raft::VoteResponse* resp) {
-    bool granted = raft_node.request_vote(req->term(), req->candidate_id());
+    bool granted = raft_node.request_vote(req->term(), req->candidate_id(),
+                                          req->last_log_index(), req->last_log_term());
     resp->set_vote_granted(granted);
     return grpc::Status::OK;
 }

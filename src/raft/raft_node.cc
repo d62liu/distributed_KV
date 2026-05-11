@@ -34,6 +34,8 @@ void RaftNode::start_election() {
     raft::VoteRequest req;
     req.set_term(term_number);
     req.set_candidate_id(node_id);
+    req.set_last_log_index(log.empty() ? 0 : log.back().index());
+    req.set_last_log_term(log.empty() ? 0 : log.back().term());
 
     int votes = 1;
     for (const auto& peer : peers) {
@@ -54,10 +56,17 @@ void RaftNode::start_election() {
     }
 }
 
-bool RaftNode::request_vote(uint64_t term, const std::string& candidate_id) {
+bool RaftNode::request_vote(uint64_t term, const std::string& candidate_id,
+                            uint64_t candidate_last_log_index, uint64_t candidate_last_log_term) {
     std::lock_guard<std::mutex> lock(mu);
     if (term < term_number) return false;
     if (voted_for != "" && voted_for != candidate_id) return false;
+
+    uint64_t my_last_term = log.empty() ? 0 : log.back().term();
+    uint64_t my_last_index = log.empty() ? 0 : log.back().index();
+    if (candidate_last_log_term < my_last_term) return false;
+    if (candidate_last_log_term == my_last_term && candidate_last_log_index < my_last_index) return false;
+
     term_number = term;
     voted_for = candidate_id;
     persist_state();

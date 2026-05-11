@@ -42,7 +42,8 @@ class RaftNode {
 public:
     RaftNode(std::string node_id, std::string partition_id, std::vector<std::string> peers, std::unordered_map<std::string, std::string> peer_addresses, Store& store);
     void start_election();
-    bool request_vote(uint64_t term, const std::string& candidate_id);
+    bool request_vote(uint64_t term, const std::string& candidate_id,
+                      uint64_t candidate_last_log_index, uint64_t candidate_last_log_term);
     bool append_entries(const raft::AppendEntriesRequest& req);
     bool propose(const Command& cmd);
     std::string get_leader_address() const;
