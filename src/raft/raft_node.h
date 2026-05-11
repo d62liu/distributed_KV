@@ -19,7 +19,6 @@ enum class State {
 
 class RaftNode {
     std::string node_id;
-    std::string partition_id;
     std::vector<std::string> peers;
     std::unordered_map<std::string, std::string> peer_addresses;
     Store& store;
@@ -40,7 +39,7 @@ class RaftNode {
     std::string persist_path;
 
 public:
-    RaftNode(std::string node_id, std::string partition_id, std::vector<std::string> peers, std::unordered_map<std::string, std::string> peer_addresses, Store& store);
+    RaftNode(std::string node_id, std::vector<std::string> peers, std::unordered_map<std::string, std::string> peer_addresses, Store& store);
     void start_election();
     bool request_vote(uint64_t term, const std::string& candidate_id,
                       uint64_t candidate_last_log_index, uint64_t candidate_last_log_term);

@@ -4,9 +4,8 @@
 #include <fstream>
 #include <sstream>
 
-RaftNode::RaftNode(std::string node_id, std::string partition_id, std::vector<std::string> peers, std::unordered_map<std::string, std::string> peer_addresses, Store& store)
+RaftNode::RaftNode(std::string node_id, std::vector<std::string> peers, std::unordered_map<std::string, std::string> peer_addresses, Store& store)
     : node_id(std::move(node_id))
-    , partition_id(std::move(partition_id))
     , peers(std::move(peers))
     , peer_addresses(std::move(peer_addresses))
     , store(store)

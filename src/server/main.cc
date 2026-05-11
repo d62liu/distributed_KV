@@ -23,7 +23,7 @@ int main(int argc, char* argv[]){
     Store store(16, wal_path);
     store.recover();
 
-    RaftNode raft_node(node_id, "p1", peer_addresses, peer_address_map, store);
+    RaftNode raft_node(node_id, peer_addresses, peer_address_map, store);
     RaftServiceImpl raft_service(raft_node);
 
     KVServiceImpl kv_service(store, raft_node);
