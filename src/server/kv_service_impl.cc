@@ -16,8 +16,10 @@ grpc::Status KVServiceImpl::Put(grpc::ServerContext*, const PutRequest* req, Put
 }
 
 grpc::Status KVServiceImpl::Get(grpc::ServerContext*, const GetRequest* req, GetResponse* resp) {
-    if (!raft_node.is_leader())
+    auto ri = raft_node.read_index();
+    if (!ri)
         return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, "not leader: " + raft_node.get_leader_address());
+    raft_node.wait_apply(*ri);
     std::string value = store.get(req->key());
     bool found = !value.empty();
     resp->set_found(found);

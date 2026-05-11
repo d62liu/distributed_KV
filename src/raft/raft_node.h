@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <cstdint>
 #include <mutex>
+#include <condition_variable>
 #include <optional>
 #include "util/timer.h"
 #include "raft_service.pb.h"
@@ -36,6 +37,7 @@ class RaftNode {
     std::unordered_map<std::string, uint64_t> match_index;
     mutable std::mutex mu;
     std::mutex propose_mu;
+    std::condition_variable apply_cv;
     std::string persist_path;
 
 public:
@@ -45,6 +47,8 @@ public:
                       uint64_t candidate_last_log_index, uint64_t candidate_last_log_term);
     bool append_entries(const raft::AppendEntriesRequest& req);
     bool propose(const Command& cmd);
+    std::optional<uint64_t> read_index();
+    void wait_apply(uint64_t index);
     std::string get_leader_address() const;
     bool is_leader() const;
     void send_heartbeat();
