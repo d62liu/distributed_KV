@@ -3,6 +3,7 @@
 #include "raft/raft_node.h"
 #include "raft/raft_service_impl.h"
 #include "config/cluster_config.h"
+#include <unordered_map>
 #include <grpcpp/grpcpp.h>
 #include <spdlog/spdlog.h>
 
@@ -13,14 +14,16 @@ int main(int argc, char* argv[]){
 
     ClusterConfig config;
     std::vector<std::string> peer_addresses;
+    std::unordered_map<std::string, std::string> peer_address_map;
     for (const auto& peer : config.get_peers(node_id)) {
         peer_addresses.push_back(peer.address);
+        peer_address_map[peer.id] = peer.address;
     }
 
     Store store(16, wal_path);
     store.recover();
 
-    RaftNode raft_node(node_id, "p1", peer_addresses, store);
+    RaftNode raft_node(node_id, "p1", peer_addresses, peer_address_map, store);
     RaftServiceImpl raft_service(raft_node);
 
     KVServiceImpl kv_service(store, raft_node);

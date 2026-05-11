@@ -10,12 +10,14 @@ grpc::Status KVServiceImpl::Put(grpc::ServerContext*, const PutRequest* req, Put
     cmd.set_value(req->value());
     cmd.set_request_id(req->request_id());
     bool ok = raft_node.propose(cmd);
-    if (!ok) return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, "not leader");
+    if (!ok) return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, "not leader: " + raft_node.get_leader_address());
     resp->set_success(true);
     return grpc::Status::OK;
 }
 
 grpc::Status KVServiceImpl::Get(grpc::ServerContext*, const GetRequest* req, GetResponse* resp) {
+    if (!raft_node.is_leader())
+        return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, "not leader: " + raft_node.get_leader_address());
     std::string value = store.get(req->key());
     bool found = !value.empty();
     resp->set_found(found);
@@ -29,7 +31,7 @@ grpc::Status KVServiceImpl::Delete(grpc::ServerContext*, const DeleteRequest* re
     cmd.set_key(req->key());
     cmd.set_request_id(req->request_id());
     bool ok = raft_node.propose(cmd);
-    if (!ok) return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, "not leader");
+    if (!ok) return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, "not leader: " + raft_node.get_leader_address());
     resp->set_success(true);
     return grpc::Status::OK;
 }
