@@ -95,6 +95,12 @@ add_executable(dkv-cli
 target_link_libraries(dkv-cli PRIVATE dkv-proto)
 target_include_directories(dkv-cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+add_executable(dkv-bench
+    src/client/bench.cc
+)
+target_link_libraries(dkv-bench PRIVATE dkv-proto)
+target_include_directories(dkv-bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 enable_testing()
 
 add_executable(test-shard-map
