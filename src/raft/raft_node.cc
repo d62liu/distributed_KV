@@ -172,9 +172,14 @@ bool RaftNode::propose(const Command& cmd) {
         std::lock_guard<std::mutex> lock(mu);
         if (state != State::Leader || term_number != local_term) return false;
         if (acks > static_cast<int>(peers.size() + 1) / 2) {
-            commit_index = log.size();
-            apply_committed();
-            return true;
+            if (new_entry_index < log.size() && log[new_entry_index].term() == local_term) {
+                uint64_t new_commit = new_entry_index + 1;
+                if (new_commit > commit_index) {
+                    commit_index = new_commit;
+                    apply_committed();
+                }
+                return true;
+            }
         }
     }
     return false;
