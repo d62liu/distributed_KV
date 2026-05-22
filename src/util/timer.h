@@ -20,6 +20,7 @@ private:
     std::function<void()> callback;
     std::thread thread;
     std::chrono::milliseconds duration;
+    bool randomize;
     std::mutex mu;
     std::condition_variable cv;
     bool stopped = false;
