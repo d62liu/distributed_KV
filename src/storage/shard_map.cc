@@ -7,11 +7,11 @@ uint64_t ShardedTable::get_shard(const std::string& key) {
     return XXH64(key.data(), key.size(), 0) % numShards;
 }
 
-std::string ShardedTable::get(const std::string& key) {
+std::optional<std::string> ShardedTable::get(const std::string& key) {
     Shard& shard = shards[get_shard(key)];
     std::shared_lock<std::shared_mutex> lock(shard.mu);
     auto it = shard.data.find(key);
-    if (it == shard.data.end()) return "";
+    if (it == shard.data.end()) return std::nullopt;
     return it->second;
 }
 
