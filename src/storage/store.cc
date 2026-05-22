@@ -25,6 +25,11 @@ std::optional<std::string> Store::get(const std::string& key) {
     return table.get(key);
 }
 
+bool Store::is_applied(const std::string& request_id) {
+    if (request_id.empty()) return false;
+    return dedup.lookup(request_id).has_value();
+}
+
 void Store::remove(const std::string& key, const std::string& request_id) {
     if (dedup.lookup(request_id)) return;
 

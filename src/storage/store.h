@@ -15,6 +15,7 @@ public:
     void put(const std::string& key, const std::string& value, const std::string& request_id);
     std::optional<std::string> get(const std::string& key);
     void remove(const std::string& key, const std::string& request_id);
+    bool is_applied(const std::string& request_id);
 
     void recover();
 };

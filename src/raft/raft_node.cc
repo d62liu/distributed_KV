@@ -45,34 +45,44 @@ RaftNode::~RaftNode() {
 }
 
 void RaftNode::start_election() {
-    std::lock_guard<std::mutex> lock(mu);
-    state = State::Candidate;
-    ++term_number;
-    voted_for = node_id;
-    persist_meta();
+    bool became_leader = false;
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        state = State::Candidate;
+        ++term_number;
+        voted_for = node_id;
+        persist_meta();
 
-    raft::VoteRequest req;
-    req.set_term(term_number);
-    req.set_candidate_id(node_id);
-    req.set_last_log_index(log.empty() ? 0 : log.back().index());
-    req.set_last_log_term(log.empty() ? 0 : log.back().term());
+        raft::VoteRequest req;
+        req.set_term(term_number);
+        req.set_candidate_id(node_id);
+        req.set_last_log_index(log.empty() ? 0 : log.back().index());
+        req.set_last_log_term(log.empty() ? 0 : log.back().term());
 
-    int votes = 1;
-    for (const auto& peer : peers) {
-        auto& client = clients.at(peer);
-        raft::VoteResponse resp = client.RequestVote(req);
-        if (resp.term() > term_number) { step_down(resp.term()); return; }
-        if (resp.vote_granted()) ++votes;
+        int votes = 1;
+        for (const auto& peer : peers) {
+            auto& client = clients.at(peer);
+            raft::VoteResponse resp = client.RequestVote(req);
+            if (resp.term() > term_number) { step_down(resp.term()); return; }
+            if (resp.vote_granted()) ++votes;
+        }
+
+        if (votes > static_cast<int>(peers.size() + 1) / 2) {
+            state = State::Leader;
+            for (const auto& peer : peers) {
+                next_index[peer] = log.size();
+                match_index[peer] = 0;
+            }
+            timer.cancel();
+            heart_beat.emplace(50, [this]() { send_heartbeat(); });
+            became_leader = true;
+        }
     }
 
-    if (votes > static_cast<int>(peers.size() + 1) / 2) {
-        state = State::Leader;
-        for (const auto& peer : peers) {
-            next_index[peer] = log.size();
-            match_index[peer] = 0;
-        }
-        timer.cancel();
-        heart_beat.emplace(50, [this]() { send_heartbeat(); });
+    if (became_leader) {
+        Command noop;
+        noop.set_type(Command::NOOP);
+        propose(noop);
     }
 }
 

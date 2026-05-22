@@ -4,6 +4,10 @@ KVServiceImpl::KVServiceImpl(Store& store, RaftNode& raft_node)
     : store(store), raft_node(raft_node) {}
 
 grpc::Status KVServiceImpl::Put(grpc::ServerContext*, const PutRequest* req, PutResponse* resp) {
+    if (store.is_applied(req->request_id())) {
+        resp->set_success(true);
+        return grpc::Status::OK;
+    }
     Command cmd;
     cmd.set_type(Command::PUT);
     cmd.set_key(req->key());
@@ -27,6 +31,10 @@ grpc::Status KVServiceImpl::Get(grpc::ServerContext*, const GetRequest* req, Get
 }
 
 grpc::Status KVServiceImpl::Delete(grpc::ServerContext*, const DeleteRequest* req, DeleteResponse* resp) {
+    if (store.is_applied(req->request_id())) {
+        resp->set_success(true);
+        return grpc::Status::OK;
+    }
     Command cmd;
     cmd.set_type(Command::DELETE);
     cmd.set_key(req->key());
