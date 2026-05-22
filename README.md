@@ -1,6 +1,6 @@
 # distributed_KV
 
-A distributed key-value store built on Raft consensus. This is a learning project — the goal is to build two versions of the same store (CP and AP) and benchmark the consistency/availability tradeoff directly.
+A distributed key-value store built on [Raft consensus](https://raft.github.io/raft.pdf). The goal is to build two versions of the same store (CP and AP) and benchmark the consistency/availability tradeoff directly.
 
 ## Status
 
