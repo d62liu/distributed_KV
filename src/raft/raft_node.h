@@ -38,7 +38,9 @@ class RaftNode {
     mutable std::mutex mu;
     std::mutex propose_mu;
     std::condition_variable apply_cv;
-    std::string persist_path;
+    std::string meta_path;
+    std::string log_path;
+    int log_fd;
 
 public:
     RaftNode(std::string node_id, std::vector<std::string> peers, std::unordered_map<std::string, std::string> peer_addresses, Store& store);
@@ -57,5 +59,10 @@ public:
 private:
     void step_down(uint64_t term);
     void apply_committed();
-    void persist_state();
+    void persist_meta();
+    void persist_log_entry(const raft::LogEntry& entry);
+    void rewrite_log();
+
+public:
+    ~RaftNode();
 };

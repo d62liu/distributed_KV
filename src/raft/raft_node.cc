@@ -3,6 +3,11 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <cstdio>
+#include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
+#include <spdlog/spdlog.h>
 
 RaftNode::RaftNode(std::string node_id, std::vector<std::string> peers, std::unordered_map<std::string, std::string> peer_addresses, Store& store)
     : node_id(std::move(node_id))
@@ -16,11 +21,19 @@ RaftNode::RaftNode(std::string node_id, std::vector<std::string> peers, std::uno
     , commit_index(0)
     , last_applied(0)
 {
-    persist_path = "raft_" + this->node_id + ".state";
+    meta_path = "raft_" + this->node_id + ".meta";
+    log_path = "raft_" + this->node_id + ".log";
+    log_fd = -1;
     for (const auto& peer : this->peers) {
         clients.try_emplace(peer, peer);
     }
     recover_state();
+    log_fd = open(log_path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (log_fd < 0) spdlog::error("RaftNode: failed to open {}", log_path);
+}
+
+RaftNode::~RaftNode() {
+    if (log_fd >= 0) close(log_fd);
 }
 
 void RaftNode::start_election() {
@@ -28,7 +41,7 @@ void RaftNode::start_election() {
     state = State::Candidate;
     ++term_number;
     voted_for = node_id;
-    persist_state();
+    persist_meta();
 
     raft::VoteRequest req;
     req.set_term(term_number);
@@ -68,7 +81,7 @@ bool RaftNode::request_vote(uint64_t term, const std::string& candidate_id,
 
     term_number = term;
     voted_for = candidate_id;
-    persist_state();
+    persist_meta();
     timer.reset();
     return true;
 }
@@ -76,6 +89,7 @@ bool RaftNode::request_vote(uint64_t term, const std::string& candidate_id,
 bool RaftNode::append_entries(const raft::AppendEntriesRequest& req) {
     std::lock_guard<std::mutex> lock(mu);
     if (req.term() < term_number) return false;
+    bool term_changed = (req.term() != term_number);
     term_number = req.term();
     current_leader_id = req.leader_id();
     timer.reset();
@@ -86,17 +100,27 @@ bool RaftNode::append_entries(const raft::AppendEntriesRequest& req) {
             return false;
     }
 
+    uint64_t old_size = log.size();
+    bool truncated = false;
     for (const auto& entry : req.entries()) {
         uint64_t idx = entry.index();
         if (idx < log.size()) {
             log[idx] = entry;
             log.resize(idx + 1);
+            truncated = true;
         } else {
             log.push_back(entry);
         }
     }
 
-    persist_state();
+    if (term_changed) persist_meta();
+    if (truncated) {
+        rewrite_log();
+    } else {
+        for (uint64_t i = old_size; i < log.size(); ++i) {
+            persist_log_entry(log[i]);
+        }
+    }
 
     if (req.commit_index() > commit_index) {
         commit_index = std::min(req.commit_index(), (uint64_t)log.size());
@@ -119,7 +143,7 @@ bool RaftNode::propose(const Command& cmd) {
         entry.set_term(term_number);
         *entry.mutable_command() = cmd;
         log.push_back(entry);
-        persist_state();
+        persist_log_entry(entry);
         new_entry_index = log.size() - 1;
         local_term = term_number;
     }
@@ -240,7 +264,7 @@ void RaftNode::step_down(uint64_t term) {
     state = State::Follower;
     term_number = term;
     voted_for = "";
-    persist_state();
+    persist_meta();
     heart_beat.reset();
     timer.reset();
 }
@@ -257,32 +281,87 @@ bool RaftNode::is_leader() const {
     return state == State::Leader;
 }
 
-void RaftNode::persist_state() {
+void RaftNode::persist_meta() {
     raft::RaftState rs;
     rs.set_term(term_number);
     rs.set_voted_for(voted_for);
-    for (const auto& entry : log) {
-        *rs.add_entries() = entry;
-    }
     std::string data;
     rs.SerializeToString(&data);
-    std::ofstream out(persist_path, std::ios::binary | std::ios::trunc);
-    out.write(data.data(), data.size());
+
+    std::string tmp = meta_path + ".tmp";
+    int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) { spdlog::error("RaftNode: failed to open {}", tmp); return; }
+    ssize_t n = ::write(fd, data.data(), data.size());
+    if (n != static_cast<ssize_t>(data.size())) spdlog::error("RaftNode: short write to {}", tmp);
+    fsync(fd);
+    close(fd);
+    if (rename(tmp.c_str(), meta_path.c_str()) != 0) {
+        spdlog::error("RaftNode: rename failed for {}", meta_path);
+    }
+}
+
+void RaftNode::persist_log_entry(const raft::LogEntry& entry) {
+    if (log_fd < 0) return;
+    std::string data;
+    entry.SerializeToString(&data);
+    uint32_t len = static_cast<uint32_t>(data.size());
+    ::write(log_fd, &len, 4);
+    ::write(log_fd, data.data(), len);
+    fsync(log_fd);
+}
+
+void RaftNode::rewrite_log() {
+    if (log_fd >= 0) { close(log_fd); log_fd = -1; }
+    std::string tmp = log_path + ".tmp";
+    int fd = open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) { spdlog::error("RaftNode: failed to open {}", tmp); return; }
+    for (const auto& entry : log) {
+        std::string data;
+        entry.SerializeToString(&data);
+        uint32_t len = static_cast<uint32_t>(data.size());
+        ::write(fd, &len, 4);
+        ::write(fd, data.data(), len);
+    }
+    fsync(fd);
+    close(fd);
+    if (rename(tmp.c_str(), log_path.c_str()) != 0) {
+        spdlog::error("RaftNode: rename failed for {}", log_path);
+    }
+    log_fd = open(log_path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
 }
 
 void RaftNode::recover_state() {
-    std::ifstream in(persist_path, std::ios::binary);
-    if (!in.good()) return;
-    std::ostringstream buf;
-    buf << in.rdbuf();
-    std::string data = buf.str();
-    raft::RaftState rs;
-    if (!rs.ParseFromString(data)) return;
-    term_number = rs.term();
-    voted_for = rs.voted_for();
-    for (const auto& entry : rs.entries()) {
+    std::ifstream meta(meta_path, std::ios::binary);
+    if (meta.good()) {
+        std::ostringstream buf;
+        buf << meta.rdbuf();
+        raft::RaftState rs;
+        if (rs.ParseFromString(buf.str())) {
+            term_number = rs.term();
+            voted_for = rs.voted_for();
+        }
+    }
+
+    int fd = open(log_path.c_str(), O_RDONLY);
+    if (fd < 0) return;
+    while (true) {
+        uint32_t len = 0;
+        if (::read(fd, &len, 4) != 4) break;
+        std::string data(len, '\0');
+        if (::read(fd, data.data(), len) != static_cast<ssize_t>(len)) {
+            spdlog::warn("RaftNode: truncated log entry, stopping replay");
+            break;
+        }
+        raft::LogEntry entry;
+        if (!entry.ParseFromString(data)) {
+            spdlog::warn("RaftNode: failed to parse log entry, stopping replay");
+            break;
+        }
         log.push_back(entry);
     }
+    close(fd);
+    spdlog::info("RaftNode: recovered term={} voted_for={} log_entries={}",
+                 term_number, voted_for, log.size());
 }
 
 void RaftNode::send_heartbeat() {
