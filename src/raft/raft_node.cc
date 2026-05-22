@@ -196,6 +196,44 @@ void RaftNode::apply_committed() {
         }
         ++last_applied;
     }
+    apply_cv.notify_all();
+}
+
+std::optional<uint64_t> RaftNode::read_index() {
+    uint64_t saved_term;
+    uint64_t saved_commit;
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        if (state != State::Leader) return std::nullopt;
+        saved_term = term_number;
+        saved_commit = commit_index;
+    }
+
+    int acks = 1;
+    for (const auto& peer : peers) {
+        auto& client = clients.at(peer);
+        raft::AppendEntriesRequest req;
+        req.set_term(saved_term);
+        req.set_leader_id(node_id);
+        req.set_commit_index(saved_commit);
+
+        raft::AppendEntriesResponse resp = client.AppendEntries(req);
+
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            if (resp.term() > term_number) { step_down(resp.term()); return std::nullopt; }
+            if (state != State::Leader || term_number != saved_term) return std::nullopt;
+        }
+        if (resp.success()) ++acks;
+    }
+
+    if (acks <= static_cast<int>(peers.size() + 1) / 2) return std::nullopt;
+    return saved_commit;
+}
+
+void RaftNode::wait_apply(uint64_t index) {
+    std::unique_lock<std::mutex> lock(mu);
+    apply_cv.wait(lock, [this, index]() { return last_applied >= index; });
 }
 
 void RaftNode::step_down(uint64_t term) {
