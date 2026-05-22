@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <mutex>
 #include <condition_variable>
+#include <thread>
 #include <optional>
 #include "util/timer.h"
 #include "raft_service.pb.h"
@@ -41,6 +42,8 @@ class RaftNode {
     std::string meta_path;
     std::string log_path;
     int log_fd;
+    std::thread apply_thread;
+    bool stopping;
 
 public:
     RaftNode(std::string node_id, std::vector<std::string> peers, std::unordered_map<std::string, std::string> peer_addresses, Store& store);
@@ -58,7 +61,7 @@ public:
 
 private:
     void step_down(uint64_t term);
-    void apply_committed();
+    void apply_loop();
     void persist_meta();
     void persist_log_entry(const raft::LogEntry& entry);
     void rewrite_log();

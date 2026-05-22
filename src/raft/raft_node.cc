@@ -24,15 +24,23 @@ RaftNode::RaftNode(std::string node_id, std::vector<std::string> peers, std::uno
     meta_path = "raft_" + this->node_id + ".meta";
     log_path = "raft_" + this->node_id + ".log";
     log_fd = -1;
+    stopping = false;
     for (const auto& peer : this->peers) {
         clients.try_emplace(peer, peer);
     }
     recover_state();
     log_fd = open(log_path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (log_fd < 0) spdlog::error("RaftNode: failed to open {}", log_path);
+    apply_thread = std::thread(&RaftNode::apply_loop, this);
 }
 
 RaftNode::~RaftNode() {
+    {
+        std::lock_guard<std::mutex> lock(mu);
+        stopping = true;
+    }
+    apply_cv.notify_all();
+    if (apply_thread.joinable()) apply_thread.join();
     if (log_fd >= 0) close(log_fd);
 }
 
@@ -124,7 +132,7 @@ bool RaftNode::append_entries(const raft::AppendEntriesRequest& req) {
 
     if (req.commit_index() > commit_index) {
         commit_index = std::min(req.commit_index(), (uint64_t)log.size());
-        apply_committed();
+        apply_cv.notify_all();
     }
 
     return true;
@@ -200,7 +208,7 @@ bool RaftNode::propose(const Command& cmd) {
                 uint64_t new_commit = new_entry_index + 1;
                 if (new_commit > commit_index) {
                     commit_index = new_commit;
-                    apply_committed();
+                    apply_cv.notify_all();
                 }
                 return true;
             }
@@ -209,18 +217,36 @@ bool RaftNode::propose(const Command& cmd) {
     return false;
 }
 
-void RaftNode::apply_committed() {
-    while (last_applied < commit_index) {
-        const auto& entry = log[last_applied];
-        const auto& cmd = entry.command();
-        if (cmd.type() == Command::PUT) {
-            store.put(cmd.key(), cmd.value(), cmd.request_id());
-        } else if (cmd.type() == Command::DELETE) {
-            store.remove(cmd.key(), cmd.request_id());
+void RaftNode::apply_loop() {
+    while (true) {
+        std::vector<raft::LogEntry> to_apply;
+        uint64_t target;
+        {
+            std::unique_lock<std::mutex> lock(mu);
+            apply_cv.wait(lock, [this]() { return stopping || last_applied < commit_index; });
+            if (stopping) return;
+            target = commit_index;
+            to_apply.reserve(target - last_applied);
+            for (uint64_t i = last_applied; i < target; ++i) {
+                to_apply.push_back(log[i]);
+            }
         }
-        ++last_applied;
+
+        for (const auto& entry : to_apply) {
+            const auto& cmd = entry.command();
+            if (cmd.type() == Command::PUT) {
+                store.put(cmd.key(), cmd.value(), cmd.request_id());
+            } else if (cmd.type() == Command::DELETE) {
+                store.remove(cmd.key(), cmd.request_id());
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            last_applied = target;
+        }
+        apply_cv.notify_all();
     }
-    apply_cv.notify_all();
 }
 
 std::optional<uint64_t> RaftNode::read_index() {
