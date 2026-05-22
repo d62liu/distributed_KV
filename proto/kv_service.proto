@@ -38,6 +38,7 @@ message Command {
   enum Type {
     PUT = 0;
     DELETE = 1;
+    NOOP = 2;
   }
   Type type = 1;
   string key = 2;
