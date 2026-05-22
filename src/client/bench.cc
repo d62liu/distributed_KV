@@ -14,10 +14,82 @@ struct Stats {
     uint64_t errors = 0;
 };
 
-void worker(const std::string& addr, int thread_id, int duration_secs,
+static std::string extract_leader(const std::string& msg) {
+    static const std::string prefix = "not leader: ";
+    auto pos = msg.find(prefix);
+    if (pos == std::string::npos) return "";
+    return msg.substr(pos + prefix.size());
+}
+
+struct Client {
+    std::string addr;
+    std::unique_ptr<KVService::Stub> stub;
+
+    explicit Client(std::string a) { reconnect(std::move(a)); }
+
+    void reconnect(std::string a) {
+        addr = std::move(a);
+        auto channel = grpc::CreateChannel(addr, grpc::InsecureChannelCredentials());
+        stub = KVService::NewStub(channel);
+    }
+};
+
+static constexpr int kMaxRedirects = 4;
+
+static grpc::Status do_put(Client& c, const std::string& key, const std::string& value,
+                           const std::string& request_id) {
+    grpc::Status status;
+    for (int attempt = 0; attempt < kMaxRedirects; ++attempt) {
+        grpc::ClientContext ctx;
+        ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
+        PutRequest req;
+        PutResponse resp;
+        req.set_key(key);
+        req.set_value(value);
+        req.set_request_id(request_id);
+        status = c.stub->Put(&ctx, req, &resp);
+        if (status.ok()) return status;
+        if (status.error_code() == grpc::StatusCode::FAILED_PRECONDITION) {
+            std::string leader = extract_leader(status.error_message());
+            if (!leader.empty() && leader != c.addr) {
+                c.reconnect(leader);
+                continue;
+            }
+        }
+        return status;
+    }
+    return status;
+}
+
+static grpc::Status do_get(Client& c, const std::string& key, bool& found, std::string& out) {
+    grpc::Status status;
+    for (int attempt = 0; attempt < kMaxRedirects; ++attempt) {
+        grpc::ClientContext ctx;
+        ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
+        GetRequest req;
+        GetResponse resp;
+        req.set_key(key);
+        status = c.stub->Get(&ctx, req, &resp);
+        if (status.ok()) {
+            found = resp.found();
+            if (found) out = resp.value();
+            return status;
+        }
+        if (status.error_code() == grpc::StatusCode::FAILED_PRECONDITION) {
+            std::string leader = extract_leader(status.error_message());
+            if (!leader.empty() && leader != c.addr) {
+                c.reconnect(leader);
+                continue;
+            }
+        }
+        return status;
+    }
+    return status;
+}
+
+void worker(const std::string& seed_addr, int thread_id, int duration_secs,
             double read_ratio, int num_keys, Stats& stats) {
-    auto channel = grpc::CreateChannel(addr, grpc::InsecureChannelCredentials());
-    auto stub = KVService::NewStub(channel);
+    Client c(seed_addr);
 
     std::mt19937 rng(thread_id);
     std::uniform_int_distribution<int> key_dist(0, num_keys - 1);
@@ -34,31 +106,19 @@ void worker(const std::string& addr, int thread_id, int duration_secs,
         grpc::Status status;
 
         if (is_read) {
-            grpc::ClientContext ctx;
-            ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
-            GetRequest req;
-            GetResponse resp;
-            req.set_key(key);
-            status = stub->Get(&ctx, req, &resp);
+            bool found;
+            std::string out;
+            status = do_get(c, key, found, out);
         } else {
-            grpc::ClientContext ctx;
-            ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
-            PutRequest req;
-            PutResponse resp;
-            req.set_key(key);
-            req.set_value("val_" + key);
-            req.set_request_id("t" + std::to_string(thread_id) + "_" + std::to_string(req_counter++));
-            status = stub->Put(&ctx, req, &resp);
+            std::string req_id = "t" + std::to_string(thread_id) + "_" + std::to_string(req_counter++);
+            status = do_put(c, key, "val_" + key, req_id);
         }
 
         auto t1 = std::chrono::high_resolution_clock::now();
         int64_t us = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
 
-        if (status.ok()) {
-            stats.latencies_us.push_back(us);
-        } else {
-            stats.errors++;
-        }
+        if (status.ok()) stats.latencies_us.push_back(us);
+        else stats.errors++;
     }
 }
 
@@ -84,22 +144,20 @@ int main(int argc, char* argv[]) {
               << "  read_ratio=" << read_ratio
               << "  num_keys=" << num_keys << "\n";
 
-    // Warmup: pre-populate all keys so reads aren't hitting empty slots
+    std::string leader_addr = addr;
     {
-        auto channel = grpc::CreateChannel(addr, grpc::InsecureChannelCredentials());
-        auto stub = KVService::NewStub(channel);
+        Client c(addr);
         std::cout << "Warming up (" << num_keys << " keys)...\n";
+        uint64_t warmup_errors = 0;
         for (int i = 0; i < num_keys; ++i) {
-            grpc::ClientContext ctx;
-            ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(5));
-            PutRequest req;
-            PutResponse resp;
-            req.set_key("key_" + std::to_string(i));
-            req.set_value("init_" + std::to_string(i));
-            req.set_request_id("warmup_" + std::to_string(i));
-            stub->Put(&ctx, req, &resp);
+            auto st = do_put(c, "key_" + std::to_string(i),
+                             "init_" + std::to_string(i),
+                             "warmup_" + std::to_string(i));
+            if (!st.ok()) ++warmup_errors;
         }
-        std::cout << "Warmup done.\n\n";
+        leader_addr = c.addr;
+        std::cout << "Warmup done. Leader at " << leader_addr
+                  << "  (warmup errors: " << warmup_errors << ")\n\n";
     }
 
     std::vector<Stats> stats(threads);
@@ -107,12 +165,11 @@ int main(int argc, char* argv[]) {
 
     auto bench_start = std::chrono::steady_clock::now();
     for (int t = 0; t < threads; ++t)
-        worker_threads.emplace_back(worker, addr, t, duration, read_ratio, num_keys, std::ref(stats[t]));
+        worker_threads.emplace_back(worker, leader_addr, t, duration, read_ratio, num_keys, std::ref(stats[t]));
     for (auto& t : worker_threads)
         t.join();
     double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - bench_start).count();
 
-    // Merge all per-thread latencies
     std::vector<int64_t> all;
     uint64_t total_errors = 0;
     for (auto& s : stats) {
